@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sort Symphony</title>
+<style>
+  body { margin: 0; background: #0e0e14; color: #eee; font-family: system-ui, sans-serif; text-align: center; }
+  h1 { margin: 18px 0 4px; letter-spacing: 2px; }
+  p { color: #999; margin: 0 0 12px; }
+  #bar { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 12px; }
+  button, select { background: #22223a; color: #eee; border: 1px solid #444; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+  button:hover { background: #33335a; }
+  canvas { width: 95vw; height: 65vh; background: #15151f; border-radius: 10px; }
+  #stats { margin-top: 8px; color: #aaa; }
+</style>
+</head>
+<body>
+<h1>SORT SYMPHONY</h1>
+<p>Every comparison plays a note. Hear how algorithms think.</p>
+<div id="bar">
+  <select id="algo">
+    <option value="bubble">Bubble Sort</option>
+    <option value="insertion">Insertion Sort</option>
+    <option value="selection">Selection Sort</option>
+    <option value="quick">Quick Sort</option>
+    <option value="merge">Merge Sort</option>
+    <option value="heap">Heap Sort</option>
+  </select>
+  <select id="size">
+    <option>32</option><option selected>64</option><option>128</option><option>256</option>
+  </select>
+  <select id="speed">
+    <option value="40">Slow</option><option value="10" selected>Normal</option><option value="1">Fast</option>
+  </select>
+  <button id="shuffle">Shuffle</button>
+  <button id="play">Play</button>
+  <button id="mute">Sound: On</button>
+</div>
+<canvas id="cv"></canvas>
+<div id="stats">Comparisons: 0 | Swaps: 0</div>
+
+<script>
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+let arr = [], hi = {}, comps = 0, swaps = 0, running = false, sound = true, audio = null;
+
+function resize() { cv.width = cv.clientWidth; cv.height = cv.clientHeight; draw(); }
+
+function shuffle() {
+    const n = +document.getElementById("size").value;
+    arr = [];
+    for (let i = 1; i <= n; i++) arr.push(i);
+    for (let i = n - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    hi = {}; comps = 0; swaps = 0;
+    draw();
+}
+
+function draw() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const n = arr.length, w = cv.width / n;
+    for (let i = 0; i < n; i++) {
+        const h = (arr[i] / n) * (cv.height - 10);
+        ctx.fillStyle = hi[i] || `hsl(${(arr[i] / n) * 300}, 70%, 55%)`;
+        ctx.fillRect(i * w, cv.height - h, Math.max(w - 1, 1), h);
+    }
+    document.getElementById("stats").textContent = `Comparisons: ${comps} | Swaps: ${swaps}`;
+}
+
+function beep(v) {
+    if (!sound) return;
+    if (!audio) audio = new AudioContext();
+    const osc = audio.createOscillator(), gain = audio.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = 200 + (v / arr.length) * 900;
+    gain.gain.setValueAtTime(0.08, audio.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.08);
+    osc.connect(gain).connect(audio.destination);
+    osc.start(); osc.stop(audio.currentTime + 0.08);
+}
+
+const sleep = () => new Promise(r => setTimeout(r, +document.getElementById("speed").value));
+
+async function cmp(i, j) {
+    comps++;
+    hi = { [i]: "#fff", [j]: "#fff" };
+    beep(arr[i]); draw(); await sleep();
+    return arr[i] > arr[j];
+}
+
+async function swap(i, j) {
+    swaps++;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    hi = { [i]: "#ff4d6d", [j]: "#ff4d6d" };
+    beep(arr[j]); draw(); await sleep();
+}
+
+async function setAt(i, v) {
+    swaps++;
+    arr[i] = v;
+    hi = { [i]: "#ff4d6d" };
+    beep(v); draw(); await sleep();
+}
+
+const algos = {
+    async bubble() {
+        const n = arr.length;
+        for (let i = 0; i < n; i++)
+            for (let j = 0; j < n - i - 1; j++)
+                if (await cmp(j, j + 1)) await swap(j, j + 1);
+    },
+    async insertion() {
+        for (let i = 1; i < arr.length; i++)
+            for (let j = i; j > 0 && await cmp(j - 1, j); j--) await swap(j - 1, j);
+    },
+    async selection() {
+        const n = arr.length;
+        for (let i = 0; i < n; i++) {
+            let mn = i;
+            for (let j = i + 1; j < n; j++) if (await cmp(mn, j)) mn = j;
+            if (mn != i) await swap(i, mn);
+        }
+    },
+    async quick(l = 0, r = arr.length - 1) {
+        if (l >= r) return;
+        let p = l;
+        for (let i = l; i < r; i++)
+            if (!(await cmp(i, r))) { await swap(i, p); p++; }
+        await swap(p, r);
+        await algos.quick(l, p - 1);
+        await algos.quick(p + 1, r);
+    },
+    async merge(l = 0, r = arr.length - 1) {
+        if (l >= r) return;
+        const m = Math.floor((l + r) / 2);
+        await algos.merge(l, m);
+        await algos.merge(m + 1, r);
+        const tmp = [];
+        let i = l, j = m + 1;
+        while (i <= m && j <= r) tmp.push((await cmp(i, j)) ? arr[j++] : arr[i++]);
+        while (i <= m) tmp.push(arr[i++]);
+        while (j <= r) tmp.push(arr[j++]);
+        for (let k = 0; k < tmp.length; k++) await setAt(l + k, tmp[k]);
+    },
+    async heap() {
+        const n = arr.length;
+        async function heapify(sz, i) {
+            let big = i;
+            const a = 2 * i + 1, b = 2 * i + 2;
+            if (a < sz && await cmp(a, big)) big = a;
+            if (b < sz && await cmp(b, big)) big = b;
+            if (big != i) { await swap(i, big); await heapify(sz, big); }
+        }
+        for (let i = Math.floor(n / 2) - 1; i >= 0; i--) await heapify(n, i);
+        for (let i = n - 1; i > 0; i--) { await swap(0, i); await heapify(i, 0); }
+    }
+};
+
+async function finale() {
+    for (let i = 0; i < arr.length; i++) {
+        hi = {};
+        for (let k = 0; k <= i; k++) hi[k] = "#3ddc97";
+        beep(arr[i]); draw();
+        await new Promise(r => setTimeout(r, 8));
+    }
+}
+
+document.getElementById("shuffle").onclick = () => { if (!running) shuffle(); };
+document.getElementById("mute").onclick = e => {
+    sound = !sound;
+    e.target.textContent = "Sound: " + (sound ? "On" : "Off");
+};
+document.getElementById("play").onclick = async () => {
+    if (running) return;
+    running = true;
+    comps = 0; swaps = 0;
+    await algos[document.getElementById("algo").value]();
+    await finale();
+    running = false;
+};
+document.getElementById("size").onchange = () => { if (!running) shuffle(); };
+window.onresize = resize;
+shuffle();
+resize();
+</script>
+</body>
+</html>
